@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>업비트 시간별 가격 변동</title>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <style>
+        table, th, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+			font-bold:
+        }
+        th:hover{
+            padding: 10px;
+            text-align: center;
+			cursor: pointer;
+			background-color: orange;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+        }
+		td:hover {
+			border: 3px solid green;
+            padding: 10px;
+            text-align: right;
+        }
+		.text-left {
+			text-align: left;
+		}
+		.text-right {
+			text-align: right;
+		}
+        .header{
+            width : 100%;
+            height : 30%;
+            background-color : #C55A11;
+        }
+        .body{
+            display : flex;
+            height : 60%;
+        }
+        .content{
+            width : 68%;
+			float:right;
+        }
+        .leftSideBar, .rightSideBar{
+			width:1250px;
+			height: 100%;
+			float:left;
+			margin: 0px;
+		}
+    </style>
+</head>
+<body>
+<h1> 업비트 시간별 변동률</h1>
+<div id = "currentTime" class = "header"></div> <!-- 현재 시간을 출력할 요소 추가 -->
+	<div>
+		<label for="refreshInterval"> ▶ 데이터 새로고침 주기(초) : </label>
+		<input type="number" id="refreshInterval" value="60" placeholder="기본값 60초 (1분이면 60)" />
+		<button id="setRefreshInterval">설정</button>
+		<font size = "5px" color = "blue">  
+		<span id="btcPrice">비트코인 가격: 로딩 중...</span><label><input type="checkbox" id="chartToggle" /></label> BitCoin 차트 </font></label><button id="removeAllCharts">차트 모두 지우기</button>
+
+	</div>
+
+<div id="marketData" class = "leftSideBar"></div>
+
+<!-- 위젯을 삽입할 컨테이너 -->
+<div class="body">
+<div id="tradingview-widget-container" style="height:100%; width:100%">
+  <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
+</div>
+
+
+<script>
+
+$(document).ready(function() {	
+	var previousPrices = {}; // 종목별 이전 가격 저장
+    var shotMinutesAgoPrices = {}; // 3분 전 가격 저장
+	var longMinutesAgoPrices = {}; // 10분 전 가격 저장
+    var shotLastUpdateTime = {}; // 마지막 업데이트 시간 저장
+	var longLastUpdateTime = {}; // 마지막 업데이트 시간 저장
+	var refreshIntervalId; //새로고침 객체
+	var prevBtcPrice = null; // 이전 비트코인 가격을 저장할 변수 선언
+
+	//현재 시간을 출력
+	function updateCurrentTime() {
+		var now = new Date();
+		var currentTimeString = now.getFullYear() + '년 ' +
+								(now.getMonth() + 1) + '월 ' +
+								now.getDate() + '일 ' +
+								now.getHours() + '시 ' +
+								now.getMinutes() + '분 ' +
+								now.getSeconds() + '초';
+		$('#currentTime').text('현재 시간: ' + currentTimeString);
+	}
+    //비트코인 가격 실시간
+	function updateBtcPrice() {
+		$.ajax({
+			url: "https://api.upbit.com/v1/ticker?markets=KRW-BTC",
+			dataType: "json",
+			success: function(data) {
+				var btcPrice = data[0].trade_price; // 비트코인 현재 가격
+				var market = data[0].market; // 시장 정보, 예: "KRW-BTC"
+
+				var priceStatus = ""; // 가격 상태 (up, down, stable)
+				var color = ""; // 텍스트 색상
+
+				if (prevBtcPrice === null) {
+					priceStatus = "확인중";
+					color = "black"; // 첫 조회 시 색상
+				} else if (btcPrice > prevBtcPrice) {
+					priceStatus = "▲";
+					color = "red"; // 가격 상승 시 색상
+				} else if (btcPrice < prevBtcPrice) {
+					priceStatus = "▼";
+					color = "blue"; // 가격 하락 시 색상
+				} else {
+					priceStatus = " - ";
+					color = "black"; // 가격 변동 없음 시 색상
+				}
+
+				// #btcPrice 요소의 텍스트와 스타일 업데이트
+				$("#btcPrice").text("★ 비트코인 : ₩ " + btcPrice.toLocaleString() + "  원 (" + priceStatus + ")").css({"color": color});
+
+				prevBtcPrice = btcPrice; // 현재 가격을 이전 가격으로 저장
+			}
+		});
+	}	
+	// 초기 로딩 후 주기적으로 업데이트 함수 호출
+	$(document).ready(function() {
+		updateBtcPrice();
+		setInterval(updateBtcPrice, 1000); // 1분마다 업데이트
+	});
+
+    function loadData() {
+        $.ajax({
+            url: "https://api.upbit.com/v1/market/all",
+            dataType: "json",
+            success: function(data) {
+				//링크 걸기
+				//const krwMarkets = data.filter(market => market.market.includes('KRW-'));
+				//krwMarkets.forEach(function(market) {
+				//	const currency = market.market.split("-")[1];
+				//	const link = `https://upbit.com/exchange?code=CRIX.UPBIT.KRW-${currency}`;
+				//	$('body').append(`<p><a href="${link}" target="_blank">${market.korean_name} (${market.market})</a></p>`);
+				//});
+		
+
+                var filteredMarkets = data.filter(function(item) {
+                    return item.market.indexOf("KRW-") === 0; // KRW 마켓만 필터링
+                });
+
+                var markets = filteredMarkets.map(function(item) { return item.market; }).join(",");
+				// 코인 한글명을 저장할 객체 생성
+				var marketKoreanNames = {};
+				filteredMarkets.forEach(function(item) {
+					marketKoreanNames[item.market] = item.korean_name;
+				});
+                $.ajax({
+                    url: "https://api.upbit.com/v1/ticker?markets=" + markets,
+                    dataType: "json",
+                    success: function(data) {
+                        var now = Date.now();
+						// 여기서 코인명을 한글명으로 변경
+						var dataWithKoreanNames = data.map(function(item) {
+							var koreanName = marketKoreanNames[item.market];
+							return { ...item, korean_name: koreanName }; // 코인 정보에 한글명 추가
+						});
+							var changes = dataWithKoreanNames.map(function(item) {
+                      		var coinName = item.market.replace('KRW-', '');
+							var newMarketString = "UPBIT:" + coinName + "KRW";							
+							var checkboxCell = `<input type="checkbox" class="market-checkbox" data-symbol=${newMarketString}>`;
+							var currentPrice = item.trade_price;
+							var openPrice = item.opening_price;
+							var priceChange = currentPrice - openPrice;		//전일대비 등락	
+                            var previousPrice = previousPrices[item.market] || item.trade_price; //이전가격
+                            var shotMinutesAgoPrice = shotMinutesAgoPrices[item.market] || item.trade_price; //3분간 변동금
+							var shotMinuteschangeRate = ((item.trade_price - shotMinutesAgoPrice) / shotMinutesAgoPrice) * 100; // 3분 동안 상승률
+                            var longMinutesAgoPrice = longMinutesAgoPrices[item.market] || item.trade_price; //10분간 변동금
+							var longMinuteschangeRate = ((item.trade_price - longMinutesAgoPrice) / longMinutesAgoPrice) * 100; // 10분 동안 상승률
+                            var shotchange = item.trade_price - shotMinutesAgoPrice; // 3분 전 가격 대비 변동금     
+							var longchange = item.trade_price - longMinutesAgoPrice; // 10분 전 가격 대비 변동금   
+                            var changeRate = ((item.trade_price - previousPrice) / previousPrice) * 100; // 새로고침 시간동안의 상승률											
+							var marketName = item.korean_name || item.market; //한글사용 객체
+
+                            previousPrices[item.market] = item.trade_price;
+                            if (!shotLastUpdateTime[item.market] || now - shotLastUpdateTime[item.market] >= 300000) {
+                                shotMinutesAgoPrices[item.market] = item.trade_price;
+                                shotLastUpdateTime[item.market] = now;
+                            }
+							previousPrices[item.market] = item.trade_price;
+                            if (!longLastUpdateTime[item.market] || now - longLastUpdateTime[item.market] >= 1800000) {
+                                longMinutesAgoPrices[item.market] = item.trade_price;
+                                longLastUpdateTime[item.market] = now;
+                            }
+
+                            return {
+								checkboxCell: checkboxCell,
+                                market: marketName,
+								priceChange: priceChange,
+                                trade_price: item.trade_price,
+                                shotMinutesAgoPrice: shotMinutesAgoPrice,
+                                shotMinuteschangeRate: shotMinuteschangeRate,
+								longMinutesAgoPrice: longMinutesAgoPrice,
+                                longMinuteschangeRate: longMinuteschangeRate,
+                                shotchange: shotchange,
+								longchange: longchange,
+                                changeRate: changeRate
+                            };
+                        });
+						// shotMinuteschangeRate 기준으로 바로 정렬
+						changes.sort(function(a, b) {
+							//비트코인 상단에 배치
+                            if(a.market === "비트코인") return -1;
+                            if(b.market === "비트코인") return 1;
+						   return b.shotMinuteschangeRate - a.shotMinuteschangeRate;
+						});
+
+                        var table = `<table id = "upbit">
+                                        <tr>
+											<th>C</th>
+                                            <th class="text-left">마켓</th>
+                                            <th>현재가</th>
+											<th>전일비</th>
+                                            <th>10m 가격</th>
+                                            <th>10m 등락</th>
+                                            <th>10m 변동률(%)</th>
+                                            <th>5m 가격</th>
+                                            <th>5m 등락</th>
+                                            <th>5m 변동률(%)</th>
+                                            <th>1m 상승률(%)</th>
+                                        </tr>`;
+
+						changes.forEach(function(item) {
+							// priceChange 대한 기호와 색상 설정
+							var symbolPriceChange = item.priceChange > 0 ? "▲ " : "▼ ";
+							var colorPriceChange = item.priceChange > 0 ? "red" : "blue";
+							var priceChangeRounded = parseFloat(item.priceChange.toFixed(2));
+
+							// shotchange에 대한 기호와 색상 설정
+							var symbolShotChange = item.shotchange > 0 ? "▲ " : "▼ ";
+							var colorShotChange = item.shotchange > 0 ? "red" : "blue";
+							var shotchangeRounded = parseFloat(item.shotchange.toFixed(2));
+
+							// shotMinuteschangeRate에 대한 기호와 색상 설정
+							var symbolShotMinutesChangeRate = item.shotMinuteschangeRate > 0 ? "▲ " : "▼ ";
+							var colorShotMinutesChangeRate = item.shotMinuteschangeRate > 0 ? "red" : "blue";
+							var shotMinutesChangeRateRounded = parseFloat(item.shotMinuteschangeRate.toFixed(2));
+
+							// longchange에 대한 기호와 색상 설정
+							var symbolLongChange = item.longchange > 0 ? "▲ " : "▼ ";
+							var colorLongChange = item.longchange > 0 ? "red" : "blue";
+							var longchangeRounded = parseFloat(item.longchange.toFixed(2));
+
+							// longMinuteschangeRate에 대한 기호와 색상 설정
+							var symbolLongMinutesChangeRate = item.longMinuteschangeRate > 0 ? "▲ " : "▼ ";
+							var colorLongMinutesChangeRate = item.longMinuteschangeRate > 0 ? "red" : "blue";
+							var longMinutesChangeRateRounded = parseFloat(item.longMinuteschangeRate.toFixed(2));
+
+							// item.changeRate에 대한 처리는 기존대로 유지
+							var symbolChangeRate = item.changeRate > 0 ? "▲ " : "▼ ";
+							var colorChangeRate = item.changeRate > 0 ? "red" : "blue";
+							var changeRateRounded = parseFloat(item.changeRate.toFixed(2));
+
+							// HTML 테이블 행 추가 
+							table += `<tr>
+										<td>${item.checkboxCell}</td>
+										<td class="text-left">${item.market}</td>
+										<td>${item.trade_price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</td>
+										<td><span style="color:${colorPriceChange};">${symbolPriceChange}${priceChangeRounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}\</span></td>
+										<td>${item.longMinutesAgoPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</td>
+										<td><span style="color:${colorLongChange};">${symbolLongChange}${longchangeRounded}\</span></td>
+										<td><span style="color:${colorLongMinutesChangeRate};">${symbolLongMinutesChangeRate}${longMinutesChangeRateRounded}%</span></td>
+										<td>${item.shotMinutesAgoPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</td>
+										<td><span style="color:${colorShotChange};">${symbolShotChange}${shotchangeRounded}\</span></td>
+										<td><span style="color:${colorShotMinutesChangeRate};">${symbolShotMinutesChangeRate}${shotMinutesChangeRateRounded}%</span></td>
+										<td><span style="color:${colorChangeRate};">${symbolChangeRate}${changeRateRounded}%</span></td>
+									  </tr>`;
+						});
+                        
+                        table += "</table>";
+                        $("#marketData").html(table);
+                   
+                    }
+                });
+            }
+        });
+    }
+		//비트코인차트 출력
+		$(document).ready(function() {
+			$('#chartToggle').change(function() {
+			var symbol = $(this).attr('data-symbol');
+			var checkboxId = $(this).attr('data-id'); // 체크박스에 추가된 고유 ID 사용			
+				if (this.checked) {
+					// 체크박스가 선택된 경우, 차트 로드
+					loadTradingViewChart('UPBIT:BTCKRW');
+				} else {
+					removeTradingViewChart(checkboxId); // 체크 해제 시, 해당 ID를 가진 차트 컨테이너 제거
+				}
+			});
+		});			
+		// 체크박스 선택 시 이벤트 리스너
+		$(document).on('change', '.market-checkbox', function() {
+			var symbol = $(this).attr('data-symbol');
+			var checkboxId = $(this).attr('data-id'); // 체크박스에 추가된 고유 ID 사용
+
+			if (this.checked) {
+				loadTradingViewChart(symbol, checkboxId);
+			} else {
+				removeTradingViewChart(checkboxId); // 체크 해제 시, 해당 ID를 가진 차트 컨테이너 제거
+			}
+		});
+
+		function loadTradingViewChart(symbol, checkboxId) {
+			var containerId = 'tradingview-widget-container' + checkboxId;
+			// 현재 시간을 기반으로 한 고유 식별자를 생성합니다.
+			var uniqueId = new Date().getTime();
+			// 기존 컨테이너가 존재한다면 제거합니다.
+			//$('#' + containerId).remove();
+
+			var container = $('<div class="tradingview-widget-container" id="' + containerId + '"></div>'); // 동적으로 컨테이너 생성
+			$('body').append(container); // 변경: 컨테이너를 body에 추가합니다.
+			console.log("차트 로드: " + symbol + ", 컨테이너 ID: " + containerId);
+
+			//var widgetContainer = document.getElementById('tradingview-widget-container-' + checkboxId);
+			var widgetContainer = document.getElementById(containerId);
+			var widgetDiv = document.createElement('div');
+
+			widgetDiv.className = 'widget';
+			widgetDiv.style.float = "left"; // 위젯 내부의 패딩을 추가합니다.
+			var script = document.createElement('script');
+			script.type = 'text/javascript';
+			script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+			script.async = true;
+			script.innerHTML = JSON.stringify({
+				"container_id": "tradingview-widget-container",
+				"symbol": symbol,
+				"width": "680",
+				"height": "420",
+				"interval": "5",
+				"timezone": "Asia/Seoul",
+				"theme": "light",
+				"style": "1",
+				"locale": "kr",
+				"enable_publishing": true,
+				//"hide_legend": true,
+				"range": "1D",
+				"save_image": false,
+				"calendar": false,
+				"studies": [
+					"STD;Bollinger_Bands",
+					"STD;MACD",
+					"STD;Divergence%1Indicator"
+				],
+				"hide_side_toolbar": false,
+				"hide_volume": true,
+				
+				});
+							
+				widgetDiv.appendChild(script);
+				widgetContainer.appendChild(widgetDiv);
+			}
+
+
+	//새로고침 코드
+	function setRefreshRate(seconds) {
+		if (refreshIntervalId) clearInterval(refreshIntervalId);
+		refreshIntervalId = setInterval(loadData, seconds * 1000); // 초을 밀리초로 변환
+	}
+
+
+	$('#setRefreshInterval').click(function() {
+		var seconds = $('#refreshInterval').val();
+		if (!seconds || seconds < 1) {
+			alert("1초 or 분 이상의 값을 입력해주세요.");
+			return;
+		}
+		setRefreshRate(seconds);
+		//alert(seconds + " 초 or 분마다 데이터를 새로고침합니다.");
+	});
+	//차트 모두 지우기 버튼
+	$('#removeAllCharts').click(function() {
+		$('.tradingview-widget-container').remove(); // 'chart-container' 클래스를 가진 모든 요소를 제거
+		console.log("모든 차트가 제거되었습니다.");
+	});
+	function removeTradingViewChart(checkboxId) {
+		var containerId = 'tradingview-widget-container' + checkboxId;
+		$('#' + containerId).remove(); // jQuery를 사용하여 컨테이너 제거
+	}
+    loadData();
+	loadMarketNames(); // 마켓 이름을 불러옵니다.
+    //setInterval(loadData, 60000);
+	
+	// 페이지 로딩 시 현재 시간을 한 번 표시하고, 1초마다 업데이트
+	updateCurrentTime();
+	setInterval(updateCurrentTime, 1000);
+});
+
+</script>
+
+</body>
+</html>
